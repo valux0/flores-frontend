@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
 import 'services/tweet_service.dart';
 import 'services/auth_service.dart';
 import 'models/tweet.dart';
@@ -17,180 +21,131 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tweeter - Singleton Pattern',
+      debugShowCheckedModeBanner: false,
+      title: 'Flores',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF15202B), // Fondo oscuro estilo Twitter
+        
+        // --- CAMBIO PARA EL LOGIN: Cuadros blancos con letras negras ---
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white, 
+          prefixIconColor: Colors.black,
+          suffixIconColor: Colors.black,
+          hintStyle: const TextStyle(color: Colors.grey),
+          labelStyle: const TextStyle(color: Colors.black),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        // Color del texto al escribir en los campos del Login
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Colors.black), // Texto en inputs
+          bodyLarge: TextStyle(color: Colors.white),  // Texto general
+        ),
         useMaterial3: true,
       ),
       home: _buildHome(),
       routes: {
         '/login': (context) => const LoginScreen(),
-        '/home': (context) => const MyHomePage(title: 'Tweeter - REST API Integration'),
+        '/home': (context) => const MyHomePage(title: 'Flores'),
       },
     );
   }
 
   Widget _buildHome() {
     final authService = AuthService();
-    if (authService.isAuthenticated()) {
-      return const MyHomePage(title: 'Tweeter - REST API Integration');
-    } else {
-      return const LoginScreen();
-    }
+    return authService.isAuthenticated() 
+        ? const MyHomePage(title: 'Flores') 
+        : const LoginScreen();
   }
 }
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
-
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  // Using the singleton instance
   late TweetService _tweetService;
   late AuthService _authService;
   late Future<List<Tweet>> _tweetsFuture;
   final TextEditingController _tweetController = TextEditingController();
   bool _isLoading = false;
+  XFile? _imageFile;
+  final Set<int> _likedTweets = {}; // Para el estado de los likes
 
   @override
   void initState() {
     super.initState();
-    // Get the singleton instances
     _tweetService = TweetService();
     _authService = AuthService();
     _loadTweets();
   }
 
-  /// Load tweets from the API
   void _loadTweets() {
     setState(() {
       _tweetsFuture = _tweetService.fetchTweets();
     });
   }
 
-  /// Handle logout
   Future<void> _logout() async {
     await _authService.logout();
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sesión cerrada')),
-      );
-    }
+    if (mounted) Navigator.of(context).pushReplacementNamed('/login');
   }
 
-  /// Create a new tweet
-  Future<void> _createTweet() async {
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? selected = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1024);
+    if (selected != null) setState(() => _imageFile = selected);
+  }
+
+  void _toggleLike(int id) {
+    setState(() {
+      if (_likedTweets.contains(id)) {
+        _likedTweets.remove(id);
+      } else {
+        _likedTweets.add(id);
+      }
+    });
+  }
+
+  Future<String?> _uploadToCloudinary(XFile file) async {
+    const String cloudName = "dgsjf1njc"; // CAMBIA ESTO
+    const String uploadPreset = "twweter_preset";   // CAMBIA ESTO
+    final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+    final bytes = await file.readAsBytes();
+    final request = http.MultipartRequest('POST', url)
+      ..fields['upload_preset'] = uploadPreset
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: file.name, contentType: MediaType('image', 'jpeg')));
+
+    try {
+      final response = await request.send();
+      if (response.statusCode == 200) {
+        final res = jsonDecode(await response.stream.bytesToString());
+        return res['secure_url'];
+      }
+    } catch (e) { print(e); }
+    return null;
+  }
+
+  Future<void> _createFlor() async {
     final content = _tweetController.text.trim();
-    if (content.isEmpty) {
-      _showErrorDialog('Tweet content cannot be empty');
-      return;
-    }
-
+    if (content.isEmpty) return;
     setState(() => _isLoading = true);
-
     try {
-      await _tweetService.createTweet(content);
+      String? imageUrl;
+      if (_imageFile != null) imageUrl = await _uploadToCloudinary(_imageFile!);
+      await _tweetService.createTweet(content, imageBase64: imageUrl);
       _tweetController.clear();
-      _loadTweets(); // Auto-refresh after creating
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tweet created successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      _showErrorDialog('Error creating tweet: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  /// Delete a tweet by ID
-  Future<void> _deleteTweet(int id) async {
-    setState(() => _isLoading = true);
-
-    try {
-      await _tweetService.deleteTweet(id);
-      _loadTweets(); // Auto-refresh after deletion
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tweet deleted successfully!'),
-            backgroundColor: Colors.blue,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      _showErrorDialog('Error deleting tweet: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  /// Show confirmation dialog before deleting
-  void _showDeleteConfirmation(int id) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Delete Tweet?'),
-          content: const Text('Are you sure you want to delete this tweet?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _deleteTweet(id);
-              },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Show error dialog
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Error'),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _tweetController.dispose();
-    _tweetService.dispose();
-    super.dispose();
+      setState(() => _imageFile = null);
+      _loadTweets();
+    } catch (e) { print(e); }
+    finally { if (mounted) setState(() => _isLoading = false); }
   }
 
   @override
@@ -198,80 +153,30 @@ class _MyHomePageState extends State<MyHomePage> {
     final user = _authService.getUser();
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-        elevation: 2,
+        // --- CAMBIO: Flor en la esquina izquierda ---
+        leading: const Icon(Icons.filter_vintage, color: Colors.pinkAccent, size: 28),
+        title: const Text("Flores", style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF15202B),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Center(
-              child: Text(
-                'Usuario: ${user?.username ?? "Unknown"}',
-                style: const TextStyle(fontSize: 14),
-              ),
-            ),
-          ),
-          PopupMenuButton(
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem(
-                onTap: _logout,
-                child: const Text('Cerrar Sesión'),
-              ),
-            ],
-          ),
+          Center(child: Text('Hola, ${user?.username ?? "Admin"} ')),
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout)
         ],
       ),
       body: Column(
         children: [
-          // Add Tweet Input Section
-          _buildCreateTweetSection(),
-          // Tweets List Section
+          _buildInputSection(),
+          const Divider(color: Colors.grey, thickness: 0.1),
           Expanded(
             child: FutureBuilder<List<Tweet>>(
               future: _tweetsFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                } else if (snapshot.hasError) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          color: Colors.red,
-                          size: 64,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error: ${snapshot.error}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: _loadTweets,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  );
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(
-                    child: Text('No tweets available'),
-                  );
-                } else {
-                  final tweets = snapshot.data!;
-                  return ListView.builder(
-                    itemCount: tweets.length,
-                    itemBuilder: (context, index) {
-                      final tweet = tweets[index];
-                      return _buildTweetCard(tweet);
-                    },
-                  );
-                }
+                if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                final tweets = snapshot.data ?? [];
+                return ListView.builder(
+                  itemCount: tweets.length,
+                  itemBuilder: (context, index) => _buildFlorCard(tweets[index]),
+                );
               },
             ),
           ),
@@ -280,40 +185,39 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  /// Build the create tweet input section
-  Widget _buildCreateTweetSection() {
-    return Container(
-      color: Colors.grey[100],
-      padding: const EdgeInsets.all(16),
-      child: Column(
+  Widget _buildInputSection() {
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: _tweetController,
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: 'What\'s on your mind?',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              fillColor: Colors.white,
-              filled: true,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _createTweet,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Post Tweet'),
+          const CircleAvatar(backgroundColor: Colors.pinkAccent, child: Icon(Icons.filter_vintage, color: Colors.white, size: 20)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              children: [
+                TextField(
+                  controller: _tweetController,
+                  maxLines: null,
+                  style: const TextStyle(color: Colors.white), // Texto blanco en el home
+                  decoration: const InputDecoration(
+                    hintText: "¿Qué flor quieres publicar?",
+                    filled: false, 
+                    border: InputBorder.none,
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(icon: const Icon(Icons.image_outlined, color: Colors.blue), onPressed: _pickImage),
+                    ElevatedButton(
+                      onPressed: _isLoading ? null : _createFlor,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                      child: const Text("Publicar Flor"),
+                    ),
+                  ],
+                )
+              ],
             ),
           ),
         ],
@@ -321,39 +225,67 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  /// Build individual tweet card with delete button
-  Widget _buildTweetCard(Tweet tweet) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildFlorCard(Tweet tweet) {
+    bool isLiked = _likedTweets.contains(tweet.id);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey, width: 0.1))),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CircleAvatar(backgroundColor: Colors.blueGrey, child: Icon(Icons.person, color: Colors.white)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    tweet.tweet,
-                    style: Theme.of(context).textTheme.bodyLarge,
+                Row(
+                  children: [
+                    // --- CAMBIO: Mostrar nombre real del usuario ---
+                    Text(tweet.username ?? "Usuario", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                    const SizedBox(width: 5),
+                    const Icon(Icons.verified, color: Colors.blue, size: 16),
+                    const Spacer(),
+                    IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey), onPressed: () => _deleteTweet(tweet.id))
+                  ],
+                ),
+                Text(tweet.tweet, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                if (tweet.image != null && tweet.image!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.network(tweet.image!)),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => _showDeleteConfirmation(tweet.id),
-                  tooltip: 'Delete tweet',
-                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _iconButton(Icons.chat_bubble_outline, "0"),
+                    _iconButton(Icons.autorenew, "0"),
+                    GestureDetector(
+                      onTap: () => _toggleLike(tweet.id),
+                      child: Row(children: [
+                        Icon(isLiked ? Icons.favorite : Icons.favorite_border, color: isLiked ? Colors.pink : Colors.grey, size: 18),
+                        const SizedBox(width: 4),
+                        Text(isLiked ? "1" : "0", style: TextStyle(color: isLiked ? Colors.pink : Colors.grey)),
+                      ]),
+                    ),
+                    const Icon(Icons.ios_share, color: Colors.grey, size: 18),
+                  ],
+                )
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'ID: ${tweet.id}',
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _iconButton(IconData icon, String text) {
+    return Row(children: [Icon(icon, color: Colors.grey, size: 18), const SizedBox(width: 4), Text(text, style: const TextStyle(color: Colors.grey))]);
+  }
+
+  void _deleteTweet(int id) async {
+    await _tweetService.deleteTweet(id);
+    _loadTweets();
   }
 }

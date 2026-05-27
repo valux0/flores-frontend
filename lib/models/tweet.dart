@@ -1,31 +1,33 @@
 class Tweet {
   final int id;
   final String tweet;
+  final String? image;
+  final String? username; // Almacena el nombre del autor
 
-  Tweet({
-    required this.id,
-    required this.tweet,
-  });
+  Tweet({required this.id, required this.tweet, this.image, this.username});
 
-  /// Convert JSON to Tweet object
   factory Tweet.fromJson(Map<String, dynamic> json) {
-    final id = json['id'];
-    final tweetContent = json['tweet'];
-    
+    // Extraemos el username del objeto postedBy que viene del Backend
+    String? name;
+    if (json['postedBy'] != null) {
+      name = json['postedBy']['username'];
+    }
+
     return Tweet(
-      id: id is int ? id : (id is String ? int.tryParse(id) ?? 0 : 0),
-      tweet: tweetContent is String ? tweetContent : tweetContent?.toString() ?? '',
+      id: json['id'] ?? 0,
+      tweet: json['tweet'] ?? '',
+      image: json['image'],
+      username: name,
     );
   }
 
-  /// Convert Tweet object to JSON
+  // Esta función es necesaria para enviar datos al servidor
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'tweet': tweet,
+      'image': image,
+      // No enviamos username aquí porque el servidor lo sabe por el Token
     };
   }
-
-  @override
-  String toString() => 'Tweet(id: $id, tweet: $tweet)';
 }
