@@ -51,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // --- CAMBIO: Título y Flor ---
+            // --- Título y Flor ---
             const Icon(Icons.filter_vintage, size: 80, color: Color(0xFFCE93D8)),
             const SizedBox(height: 16),
             const Text(
@@ -67,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
             // Cuadro de Usuario
             TextField(
               controller: _usernameController,
-              style: const TextStyle(color: Colors.black), // Texto negro al escribir
+              style: const TextStyle(color: Colors.black),
               decoration: const InputDecoration(
                 hintText: "Usuario",
                 prefixIcon: Icon(Icons.person),
@@ -79,7 +79,7 @@ class _LoginScreenState extends State<LoginScreen> {
             TextField(
               controller: _passwordController,
               obscureText: true,
-              style: const TextStyle(color: Colors.black), // Texto negro al escribir
+              style: const TextStyle(color: Colors.black),
               decoration: const InputDecoration(
                 hintText: "Contraseña",
                 prefixIcon: Icon(Icons.lock),
@@ -108,10 +108,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: _isLoading 
                     ? const CircularProgressIndicator(strokeWidth: 2) 
                     : const Text("Entrar a mi jardín"),
+              ),
             ),
+
+            // --- NUEVA MODIFICACIÓN: Opción para Crear Usuario ---
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pushNamed('/register');
+              },
+              child: const Text(
+                "¿No tienes cuenta? Cultiva una aquí",
+                style: TextStyle(
+                  color: Color(0xFFCE93D8),
+                  fontSize: 14,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
             ),
-            
-            // ELIMINADO: Ya no existe el recuadro de credenciales de prueba
           ],
         ),
       ),

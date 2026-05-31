@@ -9,6 +9,7 @@ class AuthService {
 
   // URL base sin barra al final para evitar errores de //
   final String baseUrl = 'https://flores-api.onrender.com/api';
+  //final String baseUrl = 'http://localhost:8080/api';
   late http.Client _httpClient;
   SharedPreferences? _prefs;
 
@@ -102,6 +103,25 @@ class AuthService {
     await _ensureInit();
     await _prefs!.remove(_tokenKey);
     await _prefs!.remove(_userKey);
+  }
+
+  // Función para registrar un nuevo usuario
+  Future<void> register(String username, String email, String password) async {
+    final response = await _httpClient.post(
+      Uri.parse('$baseUrl/auth/signup'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': username,
+        'email': email,
+        'password': password,
+        'role': ['user'] // Por defecto creamos usuarios normales
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['message'] ?? 'Error al registrarse');
+    }
   }
 
   void dispose() {
